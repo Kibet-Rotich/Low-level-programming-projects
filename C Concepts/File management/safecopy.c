@@ -1,62 +1,80 @@
-#include<fcntl.h>
-#include<stdio.h>
-#include<stdlib.h>
-#include<unistd.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <errno.h> 
 
-int main(int argc, char* argv[]){
-    if(argc != 3){
-        printf("usage ./safecopy [src file] [dest file]");
-        return -1;
-    }
-    char* buffer = (char*)malloc(1024*4);
+#define BUFFER_SIZE 4096
 
-    if (buffer == NULL){
-        printf("cannot allocate memory\n");
-        return -1;
-    }
+int main(int argc, char* argv[]) {
 
+    int fd_source = -1;
+    int fd_dest = -1;
+    char* buffer = NULL;
+    int exit_status = 0; 
 
-    int fd_source = open(argv[1], O_RDONLY);
-    printf("fdsource == %d \n", fd_source);
-    if(fd_source == -1){
-        printf("Cannot open source file.\n");
-        return -1;
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s [src_file] [dest_file]\n", argv[0]);
+        return 1; 
     }
 
-    int fd_dest = open(argv[2], O_WRONLY|O_CREAT | O_TRUNC,0644);
-    printf("fd_dest == %d \n", fd_dest);
-    if(fd_dest==-1){
-        printf("cannot open dest file\n");
-        return -1;
+    buffer = (char*)malloc(BUFFER_SIZE);
+    if (buffer == NULL) {
+        perror("Memory allocation failed");
+        return 1; 
     }
 
-    while(1){
-        int bytes_read = read(fd_source,buffer,4096);
+    fd_source = open(argv[1], O_RDONLY);
+    if (fd_source == -1) {
+        perror("Failed to open source file");
+        exit_status = 1;
+        goto cleanup; 
+    }
 
-        if(bytes_read == 0){
-            printf("copy process completed or file is empty\n");
-            break;
-        }else if(bytes_read == -1){
-            printf("error encountered while copying src file\n");
+
+    fd_dest = open(argv[2], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd_dest == -1) {
+        perror("Failed to open destination file");
+        exit_status = 1;
+        goto cleanup; 
+    }
+
+
+    while (1) {
+
+        ssize_t bytes_read = read(fd_source, buffer, BUFFER_SIZE);
+
+        if (bytes_read == 0) {
+            printf("Safecopy complete: %s -> %s\n", argv[1], argv[2]);
+            break; // Success! Fall down into the cleanup block naturally.
+        } 
+        
+        if (bytes_read == -1) {
+            perror("Fatal error reading source chunk");
+            exit_status = 1;
             goto cleanup;
-
-        }else{
-            int byteswritten = write(fd_dest,buffer,bytes_read);
-            if(byteswritten == -1){
-                printf("error occured while pasting to dest file\n");
-                goto cleanup;
-            }
         }
 
-        
-
+        // Push strictly the exact number of valid bytes scooped up
+        ssize_t bytes_written = write(fd_dest, buffer, bytes_read);
+        if (bytes_written == -1) {
+            perror("Fatal error writing to destination");
+            exit_status = 1;
+            goto cleanup;
+        }
     }
-    cleanup:
-        free(buffer);
-        close(fd_dest);
-        close(fd_source);
-        return 0;
 
-    
-    
+
+cleanup:
+    if (buffer != NULL) {
+        free(buffer);
+    }
+    if (fd_source >= 0) {
+        close(fd_source);
+    }
+    if (fd_dest >= 0) {
+        close(fd_dest);
+    }
+
+    return exit_status;
 }
